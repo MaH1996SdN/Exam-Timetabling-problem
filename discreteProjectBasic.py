@@ -91,7 +91,7 @@ def exam_timetabling(instance):
         for time_slot in range(1, num_time_slots + 1):
             x[exam_id, time_slot] = model.addVar(vtype=GRB.BINARY) # 1 if exam e is scheduled in timeslot t, 0 otherwise
 
-    # Ensure that each exam is scheduled exactly once
+    # Basic Constraint: Ensure that each exam is scheduled exactly once
     for exam_id in exams:
         model.addConstr(
             gp.quicksum(x[exam_id, t] for t in range(1, num_time_slots + 1)) == 1
@@ -99,16 +99,13 @@ def exam_timetabling(instance):
 
     conflicting_pairs, shared_students_counts = find_conflicting_exams()
 
-    # Ensure conflicting exam pairs are not scheduled together
-
     def calculate_common_enrollment(exam1,exam2):
         students_exam1 = {student for student, exam in enrollments if exam == exam1}
         students_exam2 = {student for student, exam in enrollments if exam == exam2}
         common_students = students_exam1.intersection(students_exam2)
         return len(common_students)
-    
 
-     # Ensure conflicting exam pairs are not scheduled together
+    # Basic Constraint: Ensure conflicting exam pairs are not scheduled together
     for exam1, exam2 in conflicting_pairs:
         for time_slot in range(1, num_time_slots + 1):
             model.addConstr(
@@ -126,13 +123,12 @@ def exam_timetabling(instance):
                         y[exam1, exam2, distance] >= x[exam1, time_slot] + x[exam2, time_slot + distance] - 1
                     )
 
+    # Calculate the objective function to optimize
     objective_expr = 0
     for exam1 in exams:
         for exam2 in exams:
             if exam1 != exam2:
                 shared_students = calculate_common_enrollment(exam1,exam2)
-
-                #print("exam1: " + str(exam1) + " - exam2: " + str(exam2) + "\nn. shared students: " + str(shared_students) + "\n\n")
 
                 if shared_students > 0:
                     for t1 in range(1, num_time_slots + 1):
@@ -150,7 +146,6 @@ def exam_timetabling(instance):
 
     # Optimize the model
     model.optimize()
-    #print(f"Optimized Total Penalty: {objective_expr} ")
 
     def calculate_penalty_basic(timetable):
         #print('\n')
@@ -177,7 +172,6 @@ def exam_timetabling(instance):
 
     # Print the timetable
     if model.status == GRB.OPTIMAL:
-        print(f"Optimized Total Penalty: {model.objVal} ")
         timetable = {}
         for exam_id, time_slot in x:
             if x[exam_id, time_slot].X > 0.5:
@@ -188,10 +182,7 @@ def exam_timetabling(instance):
         for time_slot in sorted(timetable.keys()):
             print(f"Time Slot {time_slot}: {timetable[time_slot]}")
         
-
-        #ordered_timetable = {key: timetable[key] for key in sorted(timetable.keys())}
         print("Penalty of the solution: " + str(calculate_penalty_basic(timetable)))    
-        #print("Penalty of the solution: " + str(calculate_penalty_advanced(ordered_timetable)))
 
     else:
         print("No feasible solution found.")

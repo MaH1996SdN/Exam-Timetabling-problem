@@ -14,7 +14,7 @@ def read_input_files(instance):
     num_time_slots = 0
     enrollments = []
 
-    with open(r"C:\Users\edoardo\Desktop\discreteinstances\instance04.exm", "r") as file:
+    with open(r"C:\Users\edoardo\Desktop\discreteinstances\instance0X.exm", "r") as file:
         lines = file.readlines()  # Read all lines at once
 
     #NUMBER OF SRUDENTS IN EACH EXAM
@@ -26,11 +26,11 @@ def read_input_files(instance):
 
     # NUMBER OF TIME SLOTS
     # Read instance.slo file
-    with open(r"C:\Users\edoardo\Desktop\discreteinstances\instance04.slo", "r") as file:
+    with open(r"C:\Users\edoardo\Desktop\discreteinstances\instance0X.slo", "r") as file:
         num_time_slots = int(file.readline())
 
     # Read instance.stu file
-    with open(r"C:\Users\edoardo\Desktop\discreteinstances\instance04.stu", "r") as file:
+    with open(r"C:\Users\edoardo\Desktop\discreteinstances\instance0X.stu", "r") as file:
         lines = file.readlines()
 
     # ENROLLMENTS OF EACH STUDENT
@@ -91,7 +91,7 @@ def exam_timetabling(instance):
         for time_slot in range(1, num_time_slots + 1):
             x[exam_id, time_slot] = model.addVar(vtype=GRB.BINARY) # 1 if exam e is scheduled in timeslot t, 0 otherwise
 
-    # Ensure that each exam is scheduled exactly once
+    # Basic Constraint: Ensure that each exam is scheduled exactly once
     for exam_id in exams:
         model.addConstr(
             gp.quicksum(x[exam_id, t] for t in range(1, num_time_slots + 1)) == 1
@@ -99,14 +99,29 @@ def exam_timetabling(instance):
 
     conflicting_pairs, shared_students_counts = find_conflicting_exams()
 
-    # Ensure conflicting exam pairs are not scheduled together
-    for exam1, exam2 in conflicting_pairs:
-        for time_slot in range(1, num_time_slots + 1):
+    # Advanced Constraint: No conflicting exams in the next 3 time slots if two consecutive time slots have conflicts
+        # Decision variable for 2 and 3 consecutive timeslots contains a conflict
+    c2t = model.addVars(num_time_slots - 1, vtype=GRB.BINARY, name='u2_t')  # Binary variable for conflicts in 2 consecutive time slots
+    c3t = model.addVars(num_time_slots - 2, vtype=GRB.BINARY, name='u3_t')  # Binary variable for conflicts in 3 consecutive time slots
+
+        # No conflicting exams in the next 3 time slots if two consecutive time slots have conflicts
+    for t in range(1, num_time_slots - 2):
+        for exam1, exam2 in conflicting_pairs:
             model.addConstr(
-                x[exam1, time_slot] + x[exam2, time_slot] <= 1
+                c2t[t] >= x[t, exam1] + x[t + 1, exam2] - 1
             )
 
-    # Add new constraints for at most 3 consecutive time slots with conflicts
+    # If there is any conflict in the next 3 time slots (c3t is 1), then there should be no exams scheduled in these time slots.
+    for t in range(1, num_time_slots - 2):
+        model.addConstr(
+            c3t[t] >= c2t[t + 1]  # If there's a conflict in the next time slot (t+1), set c3t[t] to 1.
+        )
+
+    # If c3t[t] is 1 (conflict in t+2 to t+4), then there should be no exams scheduled in these time slots.
+    for t in range(1, num_time_slots - 3):
+        model.addConstr(
+            gp.quicksum(x[t + i, exam] for i in range(3) for exam in exams) <= (1 - c3t[t]) * len(exams)
+        )
 
     y = {}  # Binary decision variables to represent whether there is a conflict in each time slot
     for time_slot in range(1, num_time_slots + 1):
@@ -117,28 +132,20 @@ def exam_timetabling(instance):
             model.addConstr(
                 y[time_slot] >= x[exam1, time_slot] + x[exam2, time_slot]
             )
-    """
-    # At most 3 consecutive time slots with conflicts
+    # Advanced Constraint: At most 3 consecutive time slots with conflicts
     for time_slot in range(1, num_time_slots - 2):  # Update the range here
         model.addConstr(
-            y[time_slot] + y[time_slot + 1] + y[time_slot + 2] + y[time_slot + 3] <= 3
-        )
-    """
-    # No conflicting exams in the next 3 time slots if two consecutive time slots have conflicts
-    for time_slot in range(1, num_time_slots - 2):  # Update the range here
-        model.addConstr(
-            y[time_slot] + y[time_slot + 1] >= y[time_slot + 3]
+            y[time_slot] + y[time_slot + 1] + y[time_slot + 2] <= 3
         )
 
-    # Include a bonus profit each time no conflicting exams are scheduled for 6 consecutive time slots
+    objective_expr = 0
+    # Advanced Constraint: Include a bonus profit each time no conflicting exams are scheduled for 6 consecutive time slots
     bonus_reward = 100  # Adjust this value as needed
     for time_slot in range(1, num_time_slots - 5):  # Update the range here
         model.addConstr(
-            gp.quicksum(y[t] for t in range(time_slot, time_slot + 6)) == 0
-            # The above constraint enforces no conflicts in 6 consecutive time slots
-            # We can add a bonus reward term to the objective for this condition
-            # model.setObjective(objective_expr - bonus_reward * gp.quicksum(y[t] for t in range(time_slot, time_slot + 6)))
+            gp.quicksum(y[t] for t in range(time_slot, time_slot + 6)) <= 5  # At most one conflict in 6 consecutive time slots
         )
+        objective_expr += bonus_reward * (1 - gp.quicksum(y[t] for t in range(time_slot, time_slot + 6)))
 
     def calculate_common_enrollment(exam1,exam2):
         students_exam1 = {student for student, exam in enrollments if exam == exam1}
@@ -146,7 +153,6 @@ def exam_timetabling(instance):
         common_students = students_exam1.intersection(students_exam2)
         return len(common_students)
 
-    objective_expr = 0
     for exam1 in exams:
         for exam2 in exams:
             if exam1 != exam2:
@@ -166,10 +172,8 @@ def exam_timetabling(instance):
 
     # Optimize the model
     model.optimize()
-    #print(f"Optimized Total Penalty: {objective_expr} ")
 
     def calculate_penalty_basic(timetable):
-        #print('\n')
         final_penalty = 0.0
         # Convert the timetable to a dictionary mapping exams to their time slots
         exam_to_time_slot = {exam: time_slot for time_slot, exams in timetable.items() for exam in exams}
@@ -193,7 +197,6 @@ def exam_timetabling(instance):
 
     # Print the timetable
     if model.status == GRB.OPTIMAL:
-        print(f"Optimized Total Penalty: {model.objVal} ")
         timetable = {}
         for exam_id, time_slot in x:
             if x[exam_id, time_slot].X > 0.5:
@@ -204,10 +207,7 @@ def exam_timetabling(instance):
         for time_slot in sorted(timetable.keys()):
             print(f"Time Slot {time_slot}: {timetable[time_slot]}")
         
-
-        #ordered_timetable = {key: timetable[key] for key in sorted(timetable.keys())}
-        print("Penalty of the solution: " + str(calculate_penalty_basic(timetable)))    
-        #print("Penalty of the solution: " + str(calculate_penalty_advanced(ordered_timetable)))
+        print("Penalty of the solution: " + str(calculate_penalty_basic(timetable))) 
 
     else:
         print("No feasible solution found.")
