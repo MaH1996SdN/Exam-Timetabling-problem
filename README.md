@@ -6,3 +6,4 @@ The repo includes:
 2. The file of the report (pdf format)
 3. The folder containing the screenshot of the outputs for each instance
 4. Project formulation file
+5. Project presentation
