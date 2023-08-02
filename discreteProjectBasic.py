@@ -136,7 +136,7 @@ def exam_timetabling(instance):
                             t2 = (t1 + i) if (t1 + i) <= num_time_slots else (t1 + i - num_time_slots)  # Wrap the index correctly
                             penalty = ((2 ** (5 - i)) * (shared_students)) / len(students)
                             #print("penalty: " + str(penalty))
-                            objective_expr += penalty * ((x[exam1, t1]) + (x[exam2, t2])) 
+                            objective_expr += penalty  
 
     # Set the objective to minimize the total penalty
     model.setObjective(objective_expr, GRB.MINIMIZE)
